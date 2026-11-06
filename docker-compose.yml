@@ -1,0 +1,26 @@
+services:
+
+  tomcat:
+    build:
+      context: ..
+      dockerfile: awsPra/Dockerfile
+    container_name: aws-tomcat
+    environment:
+      - AWS_ACCESS_KEY_ID=AKIAQ32RVA7EVHHRY676
+      - AWS_SECRET_ACCESS_KEY=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
+      - AWS_DEFAULT_REGION=ap-south-1
+    ports:
+      - "8080:8080"
+
+
+  localstack:
+    image: localstack/localstack
+    container_name: localstack1
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEBUG=0
+    volumes:
+      - "./localstack-data:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
