@@ -28,7 +28,7 @@ jobs:
       - name: Build Maven project
         run: mvn clean verify
 
-       - name: Check generated WAR
+      - name: Check generated WAR
         run: ls -lh target/*.war
 
       - name: Set up Docker Buildx
