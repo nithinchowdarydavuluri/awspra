@@ -17,8 +17,8 @@ import java.io.InputStream;
 @MultipartConfig(maxFileSize = 10 * 1024 * 1024)
 public class S3servelet extends HttpServlet{
     s3service ss = new s3service();
-    @Override
 
+    @Override
     protected void doPost(HttpServletRequest request,
                           HttpServletResponse response)
             throws ServletException, IOException {
