@@ -35,6 +35,12 @@ jobs:
       - name: Check generated WAR
         run: ls -lh target/*.war
 
+      - name: Debug GitHub context
+        run: |
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "Branch: $GITHUB_REF"
+            echo "Event: $GITHUB_EVENT_NAME"
+
       - name: Configure AWS credentials
         if: github.event_name == 'push'
         uses: aws-actions/configure-aws-credentials@v4
