@@ -15,7 +15,12 @@ permissions:
   id-token: write
 
 jobs:
+
+  # --------------------------------
+  # JOB 1: BUILD AND PUSH TO ECR
+  # --------------------------------
   build:
+    name: Build and Push Docker Image
     runs-on: ubuntu-latest
 
     steps:
@@ -37,9 +42,9 @@ jobs:
 
       - name: Debug GitHub context
         run: |
-            echo "Repository: $GITHUB_REPOSITORY"
-            echo "Branch: $GITHUB_REF"
-            echo "Event: $GITHUB_EVENT_NAME"
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Branch: $GITHUB_REF"
+          echo "Event: $GITHUB_EVENT_NAME"
 
       - name: Configure AWS credentials
         if: github.event_name == 'push'
@@ -50,7 +55,6 @@ jobs:
 
       - name: Login to Amazon ECR
         if: github.event_name == 'push'
-        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Set up Docker Buildx
@@ -66,3 +70,78 @@ jobs:
           tags: |
             ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ vars.ECR_REPOSITORY }}:latest
             ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+
+  # --------------------------------
+  # JOB 2: DEPLOY TO EC2 USING SSM
+  # --------------------------------
+  deploy-to-ec2:
+    name: Deploy to EC2 using SSM
+    runs-on: ubuntu-latest
+    needs: build
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Deploy Docker image on EC2
+        run: |
+          COMMANDS=$(cat <<'EOF'
+          set -e
+
+          echo "Logging in to Amazon ECR..."
+
+          aws ecr get-login-password --region us-east-1 | \
+            docker login --username AWS --password-stdin \
+            059763918793.dkr.ecr.us-east-1.amazonaws.com
+
+          echo "Pulling latest Docker image..."
+
+          docker pull 059763918793.dkr.ecr.us-east-1.amazonaws.com/temp:latest
+
+          echo "Stopping old container if it exists..."
+
+          docker stop aws-tomcat || true
+          docker rm aws-tomcat || true
+
+          echo "Starting new container..."
+
+          docker run -d \
+            --restart unless-stopped \
+            --name aws-tomcat \
+            -p 8080:8080 \
+            059763918793.dkr.ecr.us-east-1.amazonaws.com/temp:latest
+
+          echo "Deployment completed."
+
+          docker ps
+          EOF
+          )
+
+          PARAMETERS=$(jq -n --arg command "$COMMANDS" '{commands: [$command]}')
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "${{ vars.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "$PARAMETERS" \
+            --comment "Deploy latest Java application image" \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "SSM Command ID: $COMMAND_ID"
+
+          echo "Waiting for deployment command to finish..."
+
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ vars.EC2_INSTANCE_ID }}"
+
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ vars.EC2_INSTANCE_ID }}" \
+            --query "{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}" \
+            --output json
